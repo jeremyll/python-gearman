@@ -17,7 +17,7 @@ class GearmanClientCommandHandler(GearmanCommandHandler):
 
         # When we first submit jobs, we don't have a handle assigned yet... these handles will be returned in the order of submission
         self.requests_awaiting_handles = collections.deque()
-        self.handle_to_request_map = weakref.WeakValueDictionary()
+        self.handle_to_request_map = dict()
 
     ##################################################################
     ##### Public interface methods to be called by GearmanClient #####
