@@ -25,7 +25,7 @@ class GearmanConnection(object):
     """
     connect_cooldown_seconds = 1.0
 
-    def __init__(self, host=None, port=DEFAULT_GEARMAN_PORT):
+    def __init__(self, host=None, port=DEFAULT_GEARMAN_PORT, connect_timeout=None):
         port = port or DEFAULT_GEARMAN_PORT
         self.gearman_host = host
         self.gearman_port = port
@@ -33,6 +33,8 @@ class GearmanConnection(object):
         if host is None:
             raise ServerUnavailable("No host specified")
 
+        # Set socket connection timeout
+        socket.setdefaulttimeout(connect_timeout if connect_timeout is not None else socket.getdefaulttimeout())
         self._reset_connection()
 
     def _reset_connection(self):

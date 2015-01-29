@@ -23,8 +23,8 @@ class GearmanClient(GearmanConnectionManager):
     """
     command_handler_class = GearmanClientCommandHandler
 
-    def __init__(self, host_list=None, random_unique_bytes=RANDOM_UNIQUE_BYTES):
-        super(GearmanClient, self).__init__(host_list=host_list)
+    def __init__(self, host_list=None, random_unique_bytes=RANDOM_UNIQUE_BYTES, connect_timeout=None):
+        super(GearmanClient, self).__init__(host_list=host_list, connect_timeout=connect_timeout)
 
         self.random_unique_bytes = random_unique_bytes
 

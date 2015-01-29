@@ -53,8 +53,10 @@ class GearmanConnectionManager(object):
 
     data_encoder = NoopEncoder
 
-    def __init__(self, host_list=None):
+    def __init__(self, host_list=None, connect_timeout=None):
         assert self.command_handler_class is not None, 'GearmanClientBase did not receive a command handler class'
+        # set so_timeout for socket connection
+        self.connect_timeout = connect_timeout
 
         self.connection_list = []
 
@@ -80,7 +82,8 @@ class GearmanConnectionManager(object):
         """Add a new connection to this connection manager"""
         gearman_host, gearman_port = gearman.util.disambiguate_server_parameter(hostport_tuple)
 
-        client_connection = self.connection_class(host=gearman_host, port=gearman_port)
+        client_connection = self.connection_class(host=gearman_host, port=gearman_port,
+                                                  connect_timeout=self.connect_timeout)
         self.connection_list.append(client_connection)
 
         return client_connection
