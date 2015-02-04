@@ -76,7 +76,10 @@ class GearmanClientCommandHandler(GearmanCommandHandler):
         # Update the state of this request
         current_request.job.handle = job_handle
         current_request.state = JOB_CREATED
-        self._register_request(current_request)
+
+        # Background tasks dont need to be registered as they wont have confirmation
+        if current_request.background == False:
+            self._register_request(current_request)
 
         return True
 
