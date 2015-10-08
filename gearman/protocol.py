@@ -50,7 +50,7 @@ GEARMAN_COMMAND_SUBMIT_JOB_HIGH_BG = 32
 GEARMAN_COMMAND_SUBMIT_JOB_LOW = 33
 GEARMAN_COMMAND_SUBMIT_JOB_LOW_BG = 34
 
-# Fake command code 
+# Fake command code
 GEARMAN_COMMAND_TEXT_COMMAND = 9999
 
 GEARMAN_PARAMS_FOR_COMMAND = {
@@ -148,6 +148,10 @@ GEARMAN_SERVER_COMMAND_VERSION = 'version'
 GEARMAN_SERVER_COMMAND_WORKERS = 'workers'
 GEARMAN_SERVER_COMMAND_MAXQUEUE = 'maxqueue'
 GEARMAN_SERVER_COMMAND_SHUTDOWN = 'shutdown'
+GEARMAN_SERVER_COMMAND_GETPID = 'getpid'
+GEARMAN_SERVER_COMMAND_SHOW_JOBS = 'show jobs'
+GEARMAN_SERVER_COMMAND_SHOW_UNIQUE_JOBS = 'show unique jobs'
+GEARMAN_SERVER_COMMAND_CANCEL_JOB = 'cancel job'
 
 def get_command_name(cmd_type):
     return GEARMAN_COMMAND_TO_NAME.get(cmd_type, cmd_type)
@@ -203,6 +207,7 @@ def parse_binary_command(in_buffer, is_response=True):
     split_arguments = []
 
     if len(expected_cmd_params) > 0:
+        binary_payload = binary_payload.tostring()
         split_arguments = binary_payload.split(NULL_CHAR, len(expected_cmd_params) - 1)
     elif binary_payload:
         raise ProtocolError('Expected no binary payload: %s' % get_command_name(cmd_type))
@@ -242,6 +247,11 @@ def pack_binary_command(cmd_type, cmd_args, is_response=False):
         raise ProtocolError('Received non-binary arguments: %r' % cmd_args)
 
     data_items = [cmd_args[param] for param in expected_cmd_params]
+
+    # Now check that all but the last argument are free of \0 as per the protocol spec.
+    if compat.any('\0' in argument for argument in data_items[:-1]):
+        raise ProtocolError('Received arguments with NULL byte in non-final argument')
+
     binary_payload = NULL_CHAR.join(data_items)
 
     # Pack the header in the !4sII format then append the binary payload
@@ -257,7 +267,7 @@ def parse_text_command(in_buffer):
     if '\n' not in in_buffer:
         return cmd_type, cmd_args, cmd_len
 
-    text_command, in_buffer = in_buffer.split('\n', 1)
+    text_command, in_buffer = in_buffer.tostring().split('\n', 1)
     if NULL_CHAR in text_command:
         raise ProtocolError('Received unexpected character: %s' % text_command)
 

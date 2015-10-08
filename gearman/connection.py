@@ -1,6 +1,8 @@
+import array
 import collections
 import logging
 import socket
+import ssl
 import struct
 import time
 
@@ -25,16 +27,26 @@ class GearmanConnection(object):
     """
     connect_cooldown_seconds = 1.0
 
-    def __init__(self, host=None, port=DEFAULT_GEARMAN_PORT, connect_timeout=None):
+    def __init__(self, host=None, port=DEFAULT_GEARMAN_PORT, keyfile=None, certfile=None, ca_certs=None,
+                 connect_timeout=None):
         port = port or DEFAULT_GEARMAN_PORT
         self.gearman_host = host
         self.gearman_port = port
+        self.keyfile = keyfile
+        self.certfile = certfile
+        self.ca_certs = ca_certs
 
         if host is None:
             raise ServerUnavailable("No host specified")
 
         # Set socket connection timeout
         socket.setdefaulttimeout(connect_timeout if connect_timeout is not None else socket.getdefaulttimeout())
+
+        # All 3 files must be given before SSL can be used
+        self.use_ssl = False
+        if all([self.keyfile, self.certfile, self.ca_certs]):
+            self.use_ssl = True
+
         self._reset_connection()
 
     def _reset_connection(self):
@@ -48,7 +60,7 @@ class GearmanConnection(object):
         self._is_server_side = None
 
         # Reset all our raw data buffers
-        self._incoming_buffer = ''
+        self._incoming_buffer = array.array('c')
         self._outgoing_buffer = ''
 
         # Toss all commands we may have sent or received
@@ -97,6 +109,15 @@ class GearmanConnection(object):
         """Creates a client side socket and subsequently binds/configures our socket options"""
         try:
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            if self.use_ssl:
+                client_socket = ssl.wrap_socket(client_socket,
+                                                keyfile=self.keyfile,
+                                                certfile=self.certfile,
+                                                ca_certs=self.ca_certs,
+                                                cert_reqs=ssl.CERT_REQUIRED,
+                                                ssl_version=ssl.PROTOCOL_TLSv1)
+
             client_socket.connect((self.gearman_host, self.gearman_port))
         except socket.error, socket_exception:
             self.throw_exception(exception=socket_exception)
@@ -143,15 +164,33 @@ class GearmanConnection(object):
             self.throw_exception(message='disconnected')
 
         recv_buffer = ''
-        try:
-            recv_buffer = self.gearman_socket.recv(bytes_to_read)
-        except socket.error, socket_exception:
-            self.throw_exception(exception=socket_exception)
 
-        if len(recv_buffer) == 0:
-            self.throw_exception(message='remote disconnected')
+        while True:
+            try:
+                recv_buffer = self.gearman_socket.recv(bytes_to_read)
+            except ssl.SSLError as e:
+                # if we would block, ignore the error
+                if e.errno == ssl.SSL_ERROR_WANT_READ:
+                    continue
+                elif e.errno == ssl.SSL_ERROR_WANT_WRITE:
+                    continue
+                else:
+                    self.throw_exception(exception=e)
+            except socket.error, socket_exception:
+                self.throw_exception(exception=socket_exception)
 
-        self._incoming_buffer += recv_buffer
+            if len(recv_buffer) == 0:
+                self.throw_exception(message='remote disconnected')
+            break
+
+        # SSL has an internal buffer we need to empty out
+        if self.use_ssl:
+            remaining = self.gearman_socket.pending()
+            while remaining:
+                recv_buffer += self.gearman_socket.recv(remaining)
+                remaining = self.gearman_socket.pending()
+
+        self._incoming_buffer.fromstring(recv_buffer)
         return len(self._incoming_buffer)
 
     def _unpack_command(self, given_buffer):
@@ -202,13 +241,22 @@ class GearmanConnection(object):
         if not self._outgoing_buffer:
             return 0
 
-        try:
-            bytes_sent = self.gearman_socket.send(self._outgoing_buffer)
-        except socket.error, socket_exception:
-            self.throw_exception(exception=socket_exception)
+        while True:
+            try:
+                bytes_sent = self.gearman_socket.send(self._outgoing_buffer)
+            except ssl.SSLError as e:
+                if e.errno == ssl.SSL_ERROR_WANT_READ:
+                    continue
+                elif e.errno == ssl.SSL_ERROR_WANT_WRITE:
+                    continue
+                else:
+                    self.throw_exception(exception=e)
+            except socket.error, socket_exception:
+                self.throw_exception(exception=socket_exception)
 
-        if bytes_sent == 0:
-            self.throw_exception(message='remote disconnected')
+            if bytes_sent == 0:
+                self.throw_exception(message='remote disconnected')
+            break
 
         self._outgoing_buffer = self._outgoing_buffer[bytes_sent:]
         return len(self._outgoing_buffer)
